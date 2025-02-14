@@ -8,9 +8,16 @@ import openai
 import re
 from datetime import datetime
 from data_extraction import process_job_description
+from concurrent.futures import ThreadPoolExecutor
+import time
 
 # Load environment variables
 load_dotenv()
+
+# Global configurations
+BLACK_LIST = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canoical", "SynergisticIT"]
+MAX_SEARCH_WORKERS = 3  # For parallel job searching
+MAX_PROCESS_WORKERS = 15  # For parallel job processing
 
 class JobSearch:
     def __init__(self):
@@ -64,55 +71,34 @@ class JobSearch:
                     filtered_jobs.append(job)
         return filtered_jobs
 
-def main():
-    search_params = {
-        "keywords": "Software Engineer",
-        "location_name": "United States",
-        "remote": ["2"],  # Remote jobs only
-        "experience": ["2", "3"],  # Entry level and Associate
-        "job_type": ["F", "C"],  # Full-time and Contract
-        "limit": 2,
-    }
-    
-    search_params2 = {
-        "keywords": "Software Developer",
-        "location_name": "United States",
-        "experience": ["2", "3"],  # Entry level and Associate
-        "job_type": ["F", "C"],  # Full-time and Contract
-        "limit": 2,
-    }
-    
-    search_params3 = {
-        "keywords": "Backend",
-        "location_name": "United States",
-        "experience": ["2", "3"],  # Entry level and Associate
-        "job_type": ["F", "C"],  # Full-time and Contract
-        "limit": 2,
-    }
-    
-    # resume_text = Path("main_project/resume.json").read_text()  # Load user's resume
-    job_search = JobSearch()
-    jobs = []
-    jobs.extend(job_search.search_jobs(search_params))
-    jobs.extend(job_search.search_jobs(search_params2))
-    jobs.extend(job_search.search_jobs(search_params3))
-    
-    job_results = []
+    def search_jobs_parallel(self, search_params_list, max_workers=MAX_SEARCH_WORKERS):
+        """Search for jobs on LinkedIn using multiple threads"""
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = list(executor.map(self.search_jobs, search_params_list))
+        return [job for sublist in results if sublist for job in sublist]
 
-    for job in jobs:
+    def search_jobs_sequential(self, search_params_list):
+        """Search for jobs on LinkedIn sequentially (single thread)"""
+        results = []
+        for params in search_params_list:
+            jobs = self.search_jobs(params)
+            if jobs:
+                results.extend(jobs)
+        return results
+    
+    def process_job(self, job):
+        """Process a single job"""
         job_id = job["entityUrn"].split(":")[-1]
-        details = job_search.get_job_details_by_id(job_id)
+        details = self.get_job_details_by_id(job_id)
         
-        # print(details)
-        
-        # Extract metadata directly from LinkedIn API
+        # Extract all the job details as before
+         # Extract metadata directly from LinkedIn API
         job_title = details.get('title', 'N/A')
         company = details.get('companyDetails', {}).get('com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany', {}).get('companyResolutionResult', {}).get('name', 'N/A')
         
         # filter out unwanted company
-        black_list = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canoical", "SynergisticIT"]
-        if company in black_list:
-            continue
+        if company in BLACK_LIST:
+            return None
         
         company_linkedin_url = details.get('companyDetails', {}).get('com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany', {}).get('companyResolutionResult', {}).get('url', 'N/A')
         location = details.get('formattedLocation', 'N/A')
@@ -130,16 +116,14 @@ def main():
         apply_method = details.get('applyMethod', {}).get('com.linkedin.voyager.jobs.OffsiteApply', {}) or details.get('applyMethod', {}).get('com.linkedin.voyager.jobs.ComplexOnsiteApply', {})
         apply_url = apply_method.get('companyApplyUrl', company_linkedin_url)
         
-        job_state = details.get('jobState', 'N/A')
+        # job_state = details.get('jobState', 'N/A')
         
         ## Match resume with job description
         # match_percentage = job_search.match_resume_with_job(job_desc, resume_text)
         job_data = process_job_description(job_desc)
         
-        print("job_data", job_data)
-
-        # Store extracted job details
-        job_results.append({
+        # print("job_data", job_data)
+        return {
             "Listed Date": listed_time,
             "Job Title": job_title,
             "Company": company,
@@ -152,8 +136,52 @@ def main():
             # "Job State": job_state,
             "Salary": job_data.get("salary"),
             # "Match Level (%)": match_percentage
-        })
+        }
+        
+
+def main():
+    start_time = time.time()
+    print(f"Starting job search at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
+    search_params_list = [
+        {
+            "keywords": "Software Engineer",
+            "location_name": "United States",
+            "remote": ["2"],
+            "experience": ["2", "3"],
+            "job_type": ["F", "C"],
+            "limit": 50,
+        },
+        {
+            "keywords": "Software Developer",
+            "location_name": "United States",
+            "experience": ["2", "3"],
+            "job_type": ["F", "C"],
+            "limit": 50,
+        },
+        {
+            "keywords": "Backend",
+            "location_name": "United States",
+            "experience": ["2", "3"],
+            "job_type": ["F", "C"],
+            "limit": 50,
+        }
+    ]
+    
+    job_search = JobSearch()
+    # Uncomment one of these lines to compare:
+    # jobs = job_search.search_jobs_sequential(search_params_list)  # Single thread
+    jobs = job_search.search_jobs_parallel(search_params_list)      # Multi thread
+    
+    print(f"\nJob search completed in {time.time() - start_time:.2f} seconds")
+    print(f"Found {len(jobs)} jobs")
+    
+    # Process jobs in parallel
+    process_start = time.time()
+    with ThreadPoolExecutor(max_workers=MAX_PROCESS_WORKERS) as executor:
+        job_results = list(filter(None, executor.map(job_search.process_job, jobs)))
+    
+    print(f"Time taken to process {len(job_results)} jobs: {time.time() - process_start:.2f} seconds")
     # Convert to DataFrame and save results
     df = pd.DataFrame(job_results)
 

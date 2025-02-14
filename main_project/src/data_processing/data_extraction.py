@@ -1,5 +1,6 @@
 import re
 import spacy
+import time
 
 # Load NLP model
 nlp = spacy.load("en_core_web_sm")
