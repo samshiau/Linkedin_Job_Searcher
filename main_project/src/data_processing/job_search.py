@@ -14,12 +14,14 @@ import time
 # Load environment variables
 load_dotenv()
 
-# Global configurations
+### Global configurations
 BLACK_LIST = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canoical", "SynergisticIT"]
 MAX_SEARCH_WORKERS = 3  # For parallel job searching
 MAX_PROCESS_WORKERS = 15  # For parallel job processing
 
+### Job Search Class
 class JobSearch:
+    # Initialize the job search class
     def __init__(self):
         self.usrname = os.getenv("LINKEDIN_USERNAME")
         self.pwd = os.getenv("LINKEDIN_PASSWORD")
@@ -28,7 +30,7 @@ class JobSearch:
         openai.api_key = self.openai_api_key
 
     def search_jobs(self, search_param):
-        """Search for jobs on LinkedIn"""
+        # Search for jobs on LinkedIn
         try:
             return self.api.search_jobs(**search_param)
         except Exception as e:
@@ -36,7 +38,7 @@ class JobSearch:
             return []
     
     def get_job_details_by_id(self, job_id):
-        """Get job details by job ID"""
+        # Get job details by job ID
         try:
             return self.api.get_job(job_id)
         except Exception as e:
@@ -44,7 +46,7 @@ class JobSearch:
             return {}
 
     def match_resume_with_job(self, job_desc, resume_text):
-        """Uses OpenAI to calculate match percentage between job description and resume"""
+        # Uses OpenAI to calculate match percentage between job description and resume
         try:
             response = openai.chat.completions.create(
                 model="gpt-4o-mini",
@@ -60,7 +62,7 @@ class JobSearch:
             return "Error"
     
     def filter_job_by_date(self, jobs, days=1):
-        """Filter jobs by date posted (within the last 'days' days)"""
+        # Filter jobs by date posted (within the last 'days' days)
         current_time = datetime.now()
         filtered_jobs = []
         for job in jobs:
@@ -72,13 +74,13 @@ class JobSearch:
         return filtered_jobs
 
     def search_jobs_parallel(self, search_params_list, max_workers=MAX_SEARCH_WORKERS):
-        """Search for jobs on LinkedIn using multiple threads"""
+        # Search for jobs on LinkedIn using multiple threads
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = list(executor.map(self.search_jobs, search_params_list))
         return [job for sublist in results if sublist for job in sublist]
 
     def search_jobs_sequential(self, search_params_list):
-        """Search for jobs on LinkedIn sequentially (single thread)"""
+        # Search for jobs on LinkedIn sequentially (single thread)
         results = []
         for params in search_params_list:
             jobs = self.search_jobs(params)
@@ -87,7 +89,7 @@ class JobSearch:
         return results
     
     def process_job(self, job):
-        """Process a single job"""
+        # Process a single job
         job_id = job["entityUrn"].split(":")[-1]
         details = self.get_job_details_by_id(job_id)
         
@@ -138,7 +140,7 @@ class JobSearch:
             # "Match Level (%)": match_percentage
         }
         
-
+# Test the job search
 def main():
     start_time = time.time()
     print(f"Starting job search at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -182,10 +184,11 @@ def main():
         job_results = list(filter(None, executor.map(job_search.process_job, jobs)))
     
     print(f"Time taken to process {len(job_results)} jobs: {time.time() - process_start:.2f} seconds")
+    
     # Convert to DataFrame and save results
     df = pd.DataFrame(job_results)
 
-    output_dir = Path("output")
+    output_dir = Path("../output")
     output_dir.mkdir(exist_ok=True)
 
     # Save data

@@ -5,6 +5,7 @@ import time
 # Load NLP model
 nlp = spacy.load("en_core_web_sm")
 
+### Constants
 SECTIONS = {
     "company": None,
     "responsibilities": [],
@@ -65,8 +66,9 @@ TECHNICAL_SKILLS_KEYWORDS = [
     "AR/VR", "WebXR", "Unity", "Unreal Engine"
 ]
 
-# Function to extract job sections properly
+### Function to extract job sections properly
 def extract_sections(text):
+    # Initialize sections dictionary
     sections = {}
     headers = [header.lower() for header in RESPONSIBILITIES_HEADERS + QUALIFICATIONS_HEADERS + PREFERRED_HEADERS]
     current_section = None
@@ -86,8 +88,8 @@ def extract_sections(text):
 
     return sections
 
-# Extract technical skills (case-insensitive)
 def extract_skills(sections):
+    # Extract technical skills (case-insensitive)
     extracted_skills = set()
     for section_name, text_lines in sections.items():
         for sentence in text_lines:
@@ -96,8 +98,8 @@ def extract_skills(sections):
                     extracted_skills.add(skill)
     return list(extracted_skills)
 
-# Extract experience level
 def extract_experience_level(sections):
+    # Extract experience level
     patterns = [
     r"(\d+\s*-\s*\d+|\d+\+?)\s*(?:years|yrs)\s*(?:of\s+)?(?:experience|exp|work)?",  # Matches "5+ years experience", "2-4 years exp"
     r"(?:experience|exp|work)\s*:\s*(\d+\s*-\s*\d+|\d+\+?)\s*(?:years|yrs)?",  # Matches "Experience: 3-5 years"
@@ -111,8 +113,8 @@ def extract_experience_level(sections):
                 return match.group(0) 
     return "Not specified"
 
-# Extract salary range
 def extract_salary(text):
+    # Extract salary range
     """Extract salary with improved regex patterns"""
     salary_patterns = [
         r'\$\s*(?:\d{2,3},?\d{3}|\d{2,3}K)\s*[–—-]\s*\$\s*(?:\d{2,3},?\d{3}|\d{2,3}K)',  # Added more dash types
@@ -127,8 +129,8 @@ def extract_salary(text):
             return match.group(0).strip()
     return "Not specified"
 
-# Main function to process job description
 def process_job_description(job_description):
+    # Main function to process job description
     sections = extract_sections(job_description)
     # print(sections)
     extracted_data = {
@@ -139,6 +141,7 @@ def process_job_description(job_description):
     return extracted_data
 
 def main():
+    # Test job descriptions
     job_description = """
     Tailscale is hiring a Software Engineer.
     Key Responsibilities:
