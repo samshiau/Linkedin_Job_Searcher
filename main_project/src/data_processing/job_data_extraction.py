@@ -1,6 +1,7 @@
 import re
 import spacy
 import time
+import os
 
 # Load NLP model
 nlp = spacy.load("en_core_web_sm")
@@ -185,6 +186,8 @@ def main():
     # print(process_job_description(job_description))
     print(process_job_description(job_description2))
     print(process_job_description(job_description3))
+    
+    print(os.cpu_count() * 2)
 
 if __name__ == "__main__":
     main()

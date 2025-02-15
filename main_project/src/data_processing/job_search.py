@@ -1,15 +1,26 @@
-from linkedin_api import Linkedin
-from dotenv import load_dotenv
+# Standard library imports
 import os
-import pandas as pd
+import sys
 import json
-from pathlib import Path
-import openai
-import re
-from datetime import datetime
-from data_extraction import process_job_description
-from concurrent.futures import ThreadPoolExecutor
 import time
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+# Third-party imports
+import pandas as pd
+import openai
+from dotenv import load_dotenv
+from linkedin_api import Linkedin
+
+# Add src directory to path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.dirname(os.path.dirname(current_dir))
+sys.path.append(src_dir)
+
+# Local application imports
+from job_data_extraction import process_job_description
+from utils.file_operations import FileHandler
 
 # Load environment variables
 load_dotenv()
@@ -17,7 +28,7 @@ load_dotenv()
 ### Global configurations
 BLACK_LIST = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canoical", "SynergisticIT"]
 MAX_SEARCH_WORKERS = 3  # For parallel job searching
-MAX_PROCESS_WORKERS = 15  # For parallel job processing
+MAX_PROCESS_WORKERS = 20  # For parallel job processing
 
 ### Job Search Class
 class JobSearch:
@@ -88,57 +99,93 @@ class JobSearch:
                 results.extend(jobs)
         return results
     
-    def process_job(self, job):
-        # Process a single job
-        job_id = job["entityUrn"].split(":")[-1]
-        details = self.get_job_details_by_id(job_id)
-        
-        # Extract all the job details as before
-         # Extract metadata directly from LinkedIn API
-        job_title = details.get('title', 'N/A')
-        company = details.get('companyDetails', {}).get('com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany', {}).get('companyResolutionResult', {}).get('name', 'N/A')
-        
-        # filter out unwanted company
-        if company in BLACK_LIST:
-            return None
-        
-        company_linkedin_url = details.get('companyDetails', {}).get('com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany', {}).get('companyResolutionResult', {}).get('url', 'N/A')
-        location = details.get('formattedLocation', 'N/A')
-        workplace_type = details.get('workplaceTypesResolutionResults', {}).get('urn:li:fs_workplaceType:2', {}).get('localizedName', 'N/A')
-        job_desc = details.get('description', {}).get('text', '')
-        listed_time = details.get('listedAt', 'N/A')
-        
-        # print(job_desc)
-
-        # Convert Unix timestamp (milliseconds) to readable date
-        if listed_time != 'N/A':
-            listed_time = datetime.fromtimestamp(int(listed_time)/1000).strftime('%Y-%m-%d %H:%M')
-
-        # Extract apply URL (Easy Apply or External)
-        apply_method = details.get('applyMethod', {}).get('com.linkedin.voyager.jobs.OffsiteApply', {}) or details.get('applyMethod', {}).get('com.linkedin.voyager.jobs.ComplexOnsiteApply', {})
-        apply_url = apply_method.get('companyApplyUrl', company_linkedin_url)
-        
-        # job_state = details.get('jobState', 'N/A')
-        
-        ## Match resume with job description
-        # match_percentage = job_search.match_resume_with_job(job_desc, resume_text)
-        job_data = process_job_description(job_desc)
-        
-        # print("job_data", job_data)
+    def extract_metadata(self, details):
+        """Extract basic metadata from job details"""
         return {
-            "Listed Date": listed_time,
-            "Job Title": job_title,
-            "Company": company,
-            "Location": location,
-            "Workplace Type": workplace_type,
-            "Skills": job_data.get("skills"),
-            "Experience Level": job_data.get("experience_level"),
-            "Salary": job_data.get("salary"),
-            "Apply URL": apply_url,
-            # "Job State": job_state,
-            "Salary": job_data.get("salary"),
-            # "Match Level (%)": match_percentage
+            'title': details.get('title', 'N/A'),
+            'company': details.get('companyDetails', {})
+                .get('com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany', {})
+                .get('companyResolutionResult', {})
+                .get('name', 'N/A'),
+            'company_url': details.get('companyDetails', {})
+                .get('com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany', {})
+                .get('companyResolutionResult', {})
+                .get('url', 'N/A'),
+            'location': details.get('formattedLocation', 'N/A'),
+            'workplace_type': details.get('workplaceTypesResolutionResults', {})
+                .get('urn:li:fs_workplaceType:2', {})
+                .get('localizedName', 'N/A'),
+            'listed_time': details.get('listedAt', 'N/A')
         }
+
+    def format_listed_time(self, listed_time):
+        """Convert Unix timestamp to readable date"""
+        if listed_time != 'N/A':
+            return datetime.fromtimestamp(int(listed_time)/1000).strftime('%Y-%m-%d %H:%M')
+        return listed_time
+
+    def get_apply_url(self, details):
+        """Extract apply URL from job details"""
+        apply_method = (details.get('applyMethod', {})
+            .get('com.linkedin.voyager.jobs.OffsiteApply', {}) or 
+            details.get('applyMethod', {})
+            .get('com.linkedin.voyager.jobs.ComplexOnsiteApply', {}))
+        return apply_method.get('companyApplyUrl', 'N/A')
+
+    def process_job(self, job):
+        """Process a single job"""
+        try:
+            # Get job details
+            job_id = job["entityUrn"].split(":")[-1]
+            details = self.get_job_details_by_id(job_id)
+            
+            # Extract metadata
+            metadata = self.extract_metadata(details)
+            
+            # Skip blacklisted companies
+            if metadata['company'] in BLACK_LIST:
+                return None
+            
+            # Get job description and process it
+            job_desc = details.get('description', {}).get('text', '')
+            job_data = process_job_description(job_desc)
+            
+            # Prepare final result
+            return {
+                "Listed Date": self.format_listed_time(metadata['listed_time']),
+                "Job Title": metadata['title'],
+                "Company": metadata['company'],
+                "Location": metadata['location'],
+                "Workplace Type": metadata['workplace_type'],
+                "Skills": job_data.get("skills"),
+                "Experience Level": job_data.get("experience_level"),
+                "Salary": job_data.get("salary"),
+                "Apply URL": self.get_apply_url(details)
+            }
+            
+        except Exception as e:
+            print(f"Error processing job: {e}")
+            return None
+    
+    def process_jobs_in_batch(self, jobs, batch_size=45):
+        """Process jobs in batches to better manage resources"""
+        with ThreadPoolExecutor(max_workers=MAX_PROCESS_WORKERS) as executor:
+            futures = []
+            for i in range(0, len(jobs), batch_size):
+                batch = jobs[i:i+batch_size]
+                futures.extend([executor.submit(self.process_job, job) for job in batch])
+                
+            result = []
+            for future in futures:
+                try:
+                    job_result = future.result()
+                    if job_result is not None:
+                        result.append(job_result)
+                except Exception as e:
+                    print(f"Error processing job: {e}")
+                    
+        return result
+    
         
 # Test the job search
 def main():
@@ -182,54 +229,23 @@ def main():
     process_start = time.time()
     with ThreadPoolExecutor(max_workers=MAX_PROCESS_WORKERS) as executor:
         job_results = list(filter(None, executor.map(job_search.process_job, jobs)))
-    
+        
+    # job_results = job_search.process_jobs_in_batch(jobs)
     print(f"Time taken to process {len(job_results)} jobs: {time.time() - process_start:.2f} seconds")
     
     # Convert to DataFrame and save results
     df = pd.DataFrame(job_results)
 
+    # Create output directory
     output_dir = Path("../output")
     output_dir.mkdir(exist_ok=True)
 
-    # Save data
-    json_path = output_dir / "job_data.json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(job_results, f, indent=4, ensure_ascii=False)
-
-    # Save to Excel with hyperlinks
-    writer = pd.ExcelWriter(output_dir / "job_data.xlsx", engine='xlsxwriter')
-    df.to_excel(writer, index=False)
+    # Save data using utility functions
+    file_handler = FileHandler()
+    json_path = file_handler.save_to_json(job_results, output_dir)
+    excel_path = file_handler.save_to_excel(df, output_dir)
     
-    # Get the xlsxwriter workbook and worksheet objects
-    workbook = writer.book
-    worksheet = writer.sheets['Sheet1']
-    
-    # Auto-adjust columns width
-    for idx, col in enumerate(df.columns):
-        # Get the maximum length in the column
-        max_length = max(
-            df[col].astype(str).apply(len).max(),  # max length of values
-            len(str(col))  # length of column name
-        )
-        worksheet.set_column(idx, idx, max_length + 2)  # Add some padding
-    
-    # Add hyperlink format
-    link_format = workbook.add_format({
-        'font_color': 'blue',
-        'underline': True,
-    })
-    
-    # Find the Apply URL column index
-    url_col = df.columns.get_loc('Apply URL')
-    
-    # Add hyperlinks to each row in the Apply URL column
-    for row_num, url in enumerate(df['Apply URL'], start=1):
-        if url != 'N/A':
-            worksheet.write_url(row_num, url_col, url, link_format, url)
-    
-    writer.close()
-
-    print(f"Data saved successfully to:\n- {json_path}\n- {output_dir / 'job_data.xlsx'}")
+    print(f"Data saved successfully to:\n- {json_path}\n- {excel_path}")
 
 if __name__ == "__main__":
     main()
