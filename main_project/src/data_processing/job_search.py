@@ -1,32 +1,37 @@
 # Standard library imports
 import os
 import sys
-import json
-import time
-from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-
-# Third-party imports
-import pandas as pd
-import openai
-from dotenv import load_dotenv
-from linkedin_api import Linkedin
 
 # Add src directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 src_dir = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(src_dir)
 
-# Local application imports
-from job_data_extraction import process_job_description
-from utils.file_operations import FileHandler
+# Import lazy loader
+from utils.lazy_module import LazyModule
+
+# Lazy imports
+json = LazyModule('json')
+time = LazyModule('time')
+from datetime import datetime
+ThreadPoolExecutor = LazyModule('concurrent.futures').ThreadPoolExecutor
+
+# Third-party lazy imports
+pd = LazyModule('pandas')
+openai = LazyModule('openai')
+load_dotenv = LazyModule('dotenv').load_dotenv
+Linkedin = LazyModule('linkedin_api').Linkedin
+
+# Local application lazy imports
+process_job_description = LazyModule('job_data_extraction').process_job_description
+FileHandler = LazyModule('utils.file_operations').FileHandler
 
 # Load environment variables
 load_dotenv()
 
 ### Global configurations
-BLACK_LIST = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canoical", "SynergisticIT"]
+BLACK_LIST = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canonical", "SynergisticIT", "Talentify.io", "Jobs via Dice", "Robert Half"]
 MAX_SEARCH_WORKERS = 3  # For parallel job searching
 MAX_PROCESS_WORKERS = 20  # For parallel job processing
 
@@ -199,7 +204,7 @@ def main():
             "remote": ["2"],
             "experience": ["2", "3"],
             "job_type": ["F", "C"],
-            "limit": 50,
+            "limit": 100,
         },
         {
             "keywords": "Software Developer",

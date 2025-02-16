@@ -1,6 +1,11 @@
-import json
+# import json
 from pathlib import Path
-import pandas as pd
+# import pandas as pd
+
+from utils.lazy_module import LazyModule
+# Lazy imports
+json = LazyModule('json')
+pd = LazyModule('pandas')
 
 class FileHandler:
     @staticmethod
