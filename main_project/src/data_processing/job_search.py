@@ -2,6 +2,7 @@
 import os
 import sys
 from pathlib import Path
+from redis import RedisClient
 
 # Add src directory to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +35,8 @@ load_dotenv()
 BLACK_LIST = ["Revature", "BeaconFire Inc.", "BeaconFire Solution Inc.", "Canonical", "SynergisticIT", "Talentify.io", "Jobs via Dice", "Robert Half"]
 MAX_SEARCH_WORKERS = 3  # For parallel job searching
 MAX_PROCESS_WORKERS = 20  # For parallel job processing
+JOB_CACHE_EXPIRY = 60 * 60 * 24  # 24 hours in seconds
+JOB_KEY_PREFIX = "job:"
 
 ### Job Search Class
 class JobSearch:
@@ -43,7 +46,26 @@ class JobSearch:
         self.pwd = os.getenv("LINKEDIN_PASSWORD")
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.api = Linkedin(self.usrname, self.pwd)
+        self.redis_client = RedisClient()
         openai.api_key = self.openai_api_key
+
+    def is_job_processed(self, job_id):
+        return self.redis_client.exists(self._get_cache_key(job_id))
+    
+    def mark_job_as_processed(self, job_id, job_details):
+        try: 
+            self.redis_client.set(
+                name=self._get_cache_key(job_id),
+                value=job_details,
+                ex=JOB_CACHE_EXPIRY
+            )
+        except Exception as e:
+            print(f"Error caching job {job_id}: {e}")
+        
+        
+    def _get_cache_key(self, job_id):
+        """Generate Redis key with prefix"""
+        return f"{JOB_KEY_PREFIX}{job_id}" # job:1234567890
 
     def search_jobs(self, search_param):
         # Search for jobs on LinkedIn
@@ -142,6 +164,11 @@ class JobSearch:
         try:
             # Get job details
             job_id = job["entityUrn"].split(":")[-1]
+            
+            if self.is_job_processed(job_id):
+                print(f"Job {job_id} already processed. Skipping...")
+                return None
+            
             details = self.get_job_details_by_id(job_id)
             
             # Extract metadata
@@ -156,7 +183,7 @@ class JobSearch:
             job_data = process_job_description(job_desc)
             
             # Prepare final result
-            return {
+            job_result = {
                 "Listed Date": self.format_listed_time(metadata['listed_time']),
                 "Job Title": metadata['title'],
                 "Company": metadata['company'],
@@ -167,6 +194,9 @@ class JobSearch:
                 "Salary": job_data.get("salary"),
                 "Apply URL": self.get_apply_url(details)
             }
+            
+            self.mark_job_as_processed(job_id, job_result)
+            return job_result
             
         except Exception as e:
             print(f"Error processing job: {e}")
